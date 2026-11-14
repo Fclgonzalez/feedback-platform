@@ -1,0 +1,19 @@
+# PostgreSQL local para desenvolvimento.
+# Crie um arquivo .env (NÃO versionar) com:
+#   POSTGRES_PASSWORD=uma-senha-local
+services:
+  postgres:
+    image: postgres:16
+    container_name: feedback-postgres
+    environment:
+      POSTGRES_DB: feedback
+      POSTGRES_USER: feedback
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+
+volumes:
+  pgdata:
