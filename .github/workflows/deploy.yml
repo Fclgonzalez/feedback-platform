@@ -1,0 +1,86 @@
+name: Deploy das funções
+
+# Roda a cada push na main (e manualmente, pela aba Actions).
+# Autenticação por OIDC: não há senha nem chave da Azure guardada no GitHub.
+# Os três valores usados no login (client id, tenant id, subscription id) são identificadores, não senhas.
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # necessário para o login OIDC
+  contents: read
+
+# Nunca dois deploys ao mesmo tempo
+concurrency:
+  group: deploy-azure-functions
+  cancel-in-progress: false
+
+env:
+  AZURE_FUNCTIONAPP_NAME: feedback-platform-fgfiap
+  JAVA_VERSION: '21'
+
+jobs:
+  build-and-deploy:
+    name: Compilar, testar e publicar
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar o Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Dar permissão de execução ao Maven Wrapper
+        run: chmod +x mvnw
+
+      # Se o deploy só acontecesse sem testes, um erro de código iria direto para produção.
+      # Por isso o "package" roda os testes antes de gerar o pacote.
+      - name: Compilar e testar
+        run: ./mvnw -B -ntp clean package
+        env:
+          AZURE_FUNCTION_APP_NAME: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+
+      - name: Conferir o pacote gerado
+        run: |
+          echo "Conteúdo de target/azure-functions:"
+          ls -la target/azure-functions
+          test -d "target/azure-functions/${AZURE_FUNCTIONAPP_NAME}" \
+            || { echo "ERRO: pasta target/azure-functions/${AZURE_FUNCTIONAPP_NAME} não existe. Confira o app-name."; exit 1; }
+          ls -la "target/azure-functions/${AZURE_FUNCTIONAPP_NAME}"
+
+      - name: Login na Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publicar na Function App
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+          package: target/azure-functions/${{ env.AZURE_FUNCTIONAPP_NAME }}
+
+      # Sem chave de função, a API deve responder 401. Se responder 401, o app subiu e a rota existe.
+      - name: Teste de fumaça
+        run: |
+          URL="https://${AZURE_FUNCTIONAPP_NAME}.azurewebsites.net/api/avaliacao"
+          for i in $(seq 1 12); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL" \
+              -H "Content-Type: application/json" -d '{}' || true)
+            echo "Tentativa $i: HTTP $CODE"
+            if [ "$CODE" = "401" ]; then
+              echo "OK: a aplicação respondeu 401 sem chave, como esperado."
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "ERRO: a aplicação não respondeu como esperado depois do deploy."
+          exit 1

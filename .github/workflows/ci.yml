@@ -1,0 +1,58 @@
+name: CI
+
+# Roda em todo Pull Request para main: compila, executa os testes e varre o repositório atrás de segredos.
+# Não acessa a Azure e não precisa de nenhum segredo.
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    name: Compilar e testar
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar o Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Dar permissão de execução ao Maven Wrapper
+        run: chmod +x mvnw
+
+      # Os testes com @QuarkusTest sobem um PostgreSQL em container (Dev Services);
+      # os runners do GitHub já têm Docker.
+      - name: Compilar e testar
+        run: ./mvnw -B -ntp clean verify
+
+      - name: Guardar relatórios de teste (somente se falhar)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorios-de-teste
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  segredos:
+    name: Varredura de segredos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar o código com todo o histórico
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

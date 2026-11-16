@@ -1,0 +1,70 @@
+// =====================================================================
+// Consultas de monitoramento (Application Insights > Logs)
+// =====================================================================
+
+
+// 1) Visão geral: invocações, falhas e duração p95 por função (últimas 24 h)
+//    Falhas de cliente (HTTP 4xx, como nota inválida ou falta de chave) NÃO contam como falha do sistema.
+requests
+| where timestamp > ago(24h)
+| summarize
+    invocacoes = count(),
+    falhas = countif(success == false and not(resultCode startswith "4")),
+    duracao_p95_ms = round(percentile(duration, 95), 0)
+  by funcao = operation_Name
+| order by invocacoes desc
+
+
+// 2) Invocações por hora e por função (gráfico de linhas)
+requests
+| where timestamp > ago(24h)
+| summarize invocacoes = count() by bin(timestamp, 1h), funcao = operation_Name
+| render timechart
+
+
+// 3) Avaliações registradas por urgência, por dia (gráfico de colunas)
+traces
+| where timestamp > ago(7d) and message startswith "Avaliação registrada"
+| extend urgencia = extract("urgencia=([A-Z]+)", 1, message)
+| summarize avaliacoes = count() by dia = bin(timestamp, 1d), urgencia
+| render columnchart
+
+
+// 4) E-mails de urgência enviados por dia
+traces
+| where timestamp > ago(7d) and message startswith "E-mail de avaliação crítica enviado"
+| summarize emails = count() by dia = bin(timestamp, 1d)
+| render columnchart
+
+
+// 5) Relatórios semanais enviados
+traces
+| where message startswith "Relatório semanal enviado"
+| project timestamp, message
+| order by timestamp desc
+
+
+// 6) Erros recentes: logs de nível Error e exceções
+traces
+| where timestamp > ago(24h) and severityLevel >= 3
+| project timestamp, funcao = operation_Name, message
+| order by timestamp desc
+| take 50
+
+exceptions
+| where timestamp > ago(24h)
+| project timestamp, funcao = operation_Name, type, outerMessage
+| order by timestamp desc
+| take 50
+
+
+// 7) Consulta usada pelo alerta "alerta-falhas-funcoes"
+//    (no alerta, o intervalo de tempo vem da janela da regra, por isso não há filtro de timestamp)
+union
+  (requests
+    | where success == false
+    | where not(resultCode startswith "4")
+    | project timestamp, funcao = operation_Name),
+  (traces
+    | where severityLevel >= 3
+    | project timestamp, funcao = operation_Name)
