@@ -1,6 +1,7 @@
 # Plataforma de Feedback
 
-Tech Challenge da Fase 4 (Cloud Computing, Serverless e Deploy). Os estudantes avaliam as aulas, os administradores recebem um aviso imediato das avaliações críticas e, toda semana, um relatório com a média das notas.
+Tech Challenge da Fase 4 (Cloud Computing, Serverless e Deploy).
+Os estudantes avaliam as aulas, os administradores recebem um aviso imediato das avaliações críticas e, toda semana, um relatório com a média das notas.
 
 A aplicação é serverless (Azure Functions) e roda na Microsoft Azure.
 
